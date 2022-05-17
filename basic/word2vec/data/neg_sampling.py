@@ -146,5 +146,74 @@ class Corpus:
         self.tokens = all_tokens
 
 
+class Word:
+    def __init__(self, word) -> None:
+        self.word = word
+        self.count = 0
 
+class Vocabulary:
+    def __init__(self, corpus, min_count) -> None:
+        self.words = []
+        self.word_map = {}
 
+        self.build_words(corpus, min_count)
+
+        self.filter_for_rare_and_common(min_count)
+
+    def build_words(self, corpus, min_count):
+        words = []
+        word_map = {}
+
+        i = 0
+        for token in corpus:
+            if token not in word_map:
+                word_map[token] = len(words)
+                words.append(Word(token))
+            words[word_map[token]].count += 1
+
+            i += 1
+            if i % 10000 == 0:
+                sys.stdout.flush()
+                sys.stdout.write("\rBuilding vocabulary: %d" % len(words))
+        sys.stdout.flush()
+        print("\rVocabulary build: %d" % len(words))
+
+        self.words = words
+        self.word_map = word_map
+
+    def __getitem__(self, i):
+        return self.words[i]
+
+    def __len__(self):
+        return len(self.words)
+
+    def __iter__(self):
+        return iter(self.words)
+
+    def __contains__(self, key):
+        return key in self.word_map
+
+    def indices(self, tokens):
+        return [self.word_map[token] if token in self else self.word_map['{rare}'] for token in tokens]
+    
+    def filter_for_rare_and_common(self, min_count):
+        tmp = []
+        tmp.append(Word({'rare'}))
+        unk_hash = 0
+
+        count_unk = 0
+        for token in self.words:
+            if token.count < min_count:
+                count_unk += 1
+                tmp[unk_hash].count += token.count
+            else:
+                tmp.append(token)
+
+        tmp.sort(key=lambda token: token.count, reverse=True)
+
+        word_map = {}
+        for i, token in enumerate(tmp):
+            word_map[token.word] = i
+        
+        self.words = tmp
+        self.word_map = word_map
