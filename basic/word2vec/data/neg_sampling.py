@@ -217,3 +217,81 @@ class Vocabulary:
         
         self.words = tmp
         self.word_map = word_map
+
+def sigmoid(z):
+    if z > 6:
+        return 1.0
+    elif z < -6:
+        return 0.0
+    else:
+        return 1 / (1 + math.exp(-z))
+
+if __name__ == "__main__":
+    for input_filename in ["input_full.txt"]:
+        k_negative_sampling = 5
+        min_count = 3
+        word_phrase_passes = 3
+        word_phrase_delta = 3
+        word_phrase_threshold = 1e-4
+
+        corpus = Corpus(input_filename, word_phrase_passes, word_phrase_delta, word_phrase_threshold, "phrases-%s" % input_filename)
+
+        vocab = Vocabulary(corpus, min_count)
+        table = TableForNegativeSamples(vocab)
+
+
+        for window in [5]:
+            for dim in [100]: # 100
+
+                print("Training: %s-%d-%d-%d" % (input_filename, window, dim, word_phrase_passes))
+
+                # Initialize network
+                nn0 = np.random.uniform(low=-0.5/dim, high=0.5/dim, size=(len(vocab), dim))
+                nn1 = np.zeros(shape=(len(vocab), dim))
+
+                # Initial learning rate
+                initial_alpha = 0.01 # 0.01
+
+                # Modified in loop
+                global_word_count = 0
+                alpha = initial_alpha
+                word_count = 0
+                last_word_count = 0
+
+                tokens = vocab.indices(corpus)
+
+                for token_idx, token in enumerate(tokens):
+                    if word_count % 10000 == 0:
+                        global_word_count += (word_count - last_word_count)
+                        last_word_count = word_count
+
+                        # Recalculate alpha
+                        # alpha = initial_alpha * (1 - float(global_word_count) / len(corpus))
+                        # if alpha < initial_alpha * 0.0001:
+                        #     alpha = initial_alpha * 0.0001
+
+                        sys.stdout.flush()
+                        sys.stdout.write("\rTraining: %d of %d" % (global_word_count, len(corpus)))
+
+                    current_window = np.random.randint(low=1, high=window+1)
+                    context_start = max(token_idx - current_window, 0)
+                    context_end = min(token_idx + current_window + 1, len(tokens))
+                    context = tokens[context_start:token_idx] + tokens[token_idx+1:context_end] # Turn into an iterator?
+
+                    for context_word in context:
+                        # Init neu1e with zeros
+                        neu1e = np.zeros(dim)
+                        classifiers = [(token, 1)] + [(target, 0) for target in table.sample(k_negative_sampling)]
+                        for target, label in classifiers:
+                            z = np.dot(nn0[context_word], nn1[target])
+                            p = sigmoid(z)
+                            g = alpha * (label - p)
+                            neu1e += g * nn1[target]              # Error to backpropagate to nn0
+                            nn1[target] += g * nn0[context_word]  # Update nn1
+                        nn0[context_word] += neu1e
+
+                    word_count += 1
+
+                global_word_count += (word_count - last_word_count)
+                sys.stdout.flush()
+                print("\rTraining finished: %d" % global_word_count)
